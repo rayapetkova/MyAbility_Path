@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="bg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MAP · панел</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🗺️</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root {
+    --paper:#F3F5F2; --surface:#FFFFFF; --ink:#1F2430; --muted:#596170; --line:#D7DCD4;
+    --route:#12805C; --gosho:#2A4FD6; --alert:#D62839; --signal:#FFC20E;
+    --high:#D62839; --mid:#E87500; --low:#D9A400; --none:#7B8494; color-scheme:light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --paper:#15181E; --surface:#1E222A; --ink:#EEF0F3; --muted:#A0A8B6; --line:#343A46;
+            --route:#3DBE8B; --gosho:#7E9CFF; --alert:#FF5468; --none:#8C95A5; color-scheme:dark; }
+  }
+  * { box-sizing:border-box; }
+  html, body { height:100%; margin:0; }
+  body { font-family:"Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--surface); color:var(--ink);
+         display:grid; grid-template-columns:360px 1fr; grid-template-rows:auto 1fr; }
+  body.embed { grid-template-columns:320px 1fr; }
+  button { font:inherit; color:inherit; cursor:pointer; }
+  button:focus-visible { outline:3px solid var(--gosho); outline-offset:2px; }
+  header { grid-column:1 / 3; display:flex; gap:10px; align-items:center; padding:10px 14px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0 8px 0 0; }
+  .embed header h1 { display:none; }
+  .stat { font-size:14px; color:var(--muted); }
+  .stat b { color:var(--ink); font-size:16px; }
+  header .right { margin-left:auto; display:flex; gap:12px; align-items:center; }
+  header a, .linkbtn { color:var(--muted); font-size:14px; background:none; border:0; text-decoration:underline; padding:0; }
+  aside { overflow:auto; border-right:1px solid var(--line); padding:10px; background:var(--paper); }
+  #map { height:100%; }
+
+  .analysis { background:var(--surface); border:1px solid var(--line); border-left:5px solid var(--gosho); border-radius:10px; padding:12px; margin-bottom:12px; display:none; }
+  .analysis.show { display:block; }
+  .analysis.fresh { animation:fresh 1.4s ease-out; }
+  @keyframes fresh { from { box-shadow:0 0 0 4px var(--signal); } to { box-shadow:none; } }
+  .analysis h2 { font-size:17px; margin:0 0 8px; display:flex; gap:8px; align-items:center; }
+  .analysis dl { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin:0; font-size:14px; }
+  .analysis dt { color:var(--muted); }
+  .analysis dd { margin:0; }
+  .meter { height:8px; border-radius:4px; background:var(--line); overflow:hidden; margin:8px 0 2px; }
+  .meter i { display:block; height:100%; background:var(--alert); }
+  .bars { display:flex; height:10px; border-radius:5px; overflow:hidden; margin-top:4px; background:var(--line); }
+  .bars i { display:block; height:100%; }
+  .note { font-size:13px; color:var(--muted); margin-top:8px; line-height:1.4; }
+
+  .listhead { font-size:14px; color:var(--muted); margin:4px 2px 8px; }
+  .item { width:100%; text-align:left; border:1px solid var(--line); background:var(--surface); border-radius:10px; padding:9px 11px; margin-bottom:6px; display:block; }
+  .item.sel { box-shadow:inset 0 0 0 2px var(--gosho); }
+  .item .top { display:flex; align-items:center; gap:8px; font-weight:700; font-size:15px; }
+  .dot { width:12px; height:12px; border-radius:50%; flex:none; }
+  .item small { color:var(--muted); font-size:13px; }
+  .badge { font-size:12px; border-radius:999px; padding:2px 8px; border:1px solid var(--line); margin-left:auto; font-weight:400; white-space:nowrap; }
+  .badge.cand { border-style:dashed; }
+  .empty { color:var(--muted); font-size:14px; padding:8px 2px; line-height:1.45; }
+  @media (max-width:800px) { body, body.embed { grid-template-columns:1fr; grid-template-rows:auto 45vh 1fr; } aside { order:3; border-right:0; } }
+</style>
+</head>
+<body class="{% if embed %}embed{% endif %}">
+<header>
+  <h1>MyAbility Path · панел на MAP</h1>
+  <span class="stat">Потребители <b id="s-users">–</b></span>
+  <span class="stat">Минути следене <b id="s-seg">–</b></span>
+  <span class="stat">С отклонение <b id="s-bad">–</b></span>
+  <span class="stat">Активни <b id="s-active">–</b></span>
+  <span class="stat">Кандидати <b id="s-cand">–</b></span>
+  <span class="right">
+    {% if debug %}<button class="linkbtn" id="reset">Изчисти данните</button>{% endif %}
+    {% if not embed %}<a href="/">Екранът на Диди</a> <a href="/admin/">Админ</a>{% endif %}
+  </span>
+</header>
+<aside>
+  <section class="analysis" id="analysis" aria-live="polite"></section>
+  <div class="listhead">Проблеми по приоритет (сигурност × тежест)</div>
+  <div id="list"></div>
+</aside>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+{{ tiles|json_script:"tiles" }}
+<script>
+const TILES = JSON.parse(document.getElementById("tiles").textContent);
+// Плочки от settings.TILE_URL. Ако доставчикът започне да отказва (ключ, лимит), минаваме на OSM.
+function addTiles(map, cfg) {
+  const OSM = { url:"https://tile.openstreetmap.org/{z}/{x}/{y}.png", attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>', max_zoom:19 };
+  const opts = { referrerPolicy:"strict-origin-when-cross-origin" };   // OSM иска Referer
+  let layer = L.tileLayer(cfg.url, { ...opts, maxZoom:cfg.max_zoom, attribution:cfg.attribution }).addTo(map);
+  let errors = 0;
+  layer.on("tileerror", () => {
+    if (++errors < 4 || cfg.url === OSM.url) return;
+    map.removeLayer(layer);
+    layer = L.tileLayer(OSM.url, { ...opts, maxZoom:OSM.max_zoom, attribution:OSM.attribution }).addTo(map);
+    console.warn("Плочките от " + cfg.url + " не се зареждат - минавам на OpenStreetMap.");
+  });
+}
+const CENTER = {{ center|safe }}, ZOOM = {{ zoom }}, MIN_USERS = {{ min_users }};
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const COLORS = () => ({ high:css("--high"), mid:css("--mid"), low:css("--low"), none:css("--none") });
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+
+const map = L.map("map").setView(CENTER, ZOOM);
+addTiles(map, TILES);
+const layer = L.layerGroup().addTo(map);
+const detail = L.layerGroup().addTo(map);
+const markers = {};
+let selected = null, selectedTrip = null;
+
+async function load() {
+  const data = await fetch("/api/reports/?all=1").then(r => r.json());
+  const rs = data.reports, st = data.stats, c = COLORS();
+  layer.clearLayers();
+  const list = $("list"); list.innerHTML = "";
+  if (!rs.length) list.innerHTML = '<div class="empty">Още няма проблеми. Пусни 🎬 Авто демо от телефона или сложи 🚧 и натисни ▶.</div>';
+  rs.forEach(r => {
+    const cand = r.status === "candidate";
+    const m = L.circleMarker([r.lat, r.lng], {
+      radius: 8 + Math.min(r.confidence, 10), color: cand ? "#555" : "#fff", weight: 2,
+      dashArray: cand ? "4" : null, fillColor: c[r.level], fillOpacity: cand ? .45 : .9
+    }).addTo(layer);
+    m.on("click", () => select(r.id));
+    markers[r.id] = m;
+    const el = document.createElement("button");
+    el.className = "item" + (r.id === selected ? " sel" : "");
+    const src = cand ? "кандидат" : (r.source === "auto" ? "засечен" : "докладван");
+    el.innerHTML = `<div class="top"><span class="dot" style="background:${c[r.level]}"></span>${esc(r.type_label)}
+        <span class="badge${cand ? " cand" : ""}">${src}</span></div>
+      <small>${esc(r.level_label)} · приоритет ${r.priority} · заобиколили ${r.deviation_users} · потвърдили ${r.confirmations}${r.denials ? " · отрекли " + r.denials : ""}</small>`;
+    el.onclick = () => select(r.id);
+    list.appendChild(el);
+  });
+  const active = rs.filter(r => r.status === "active").length;
+  $("s-users").textContent = st.users; $("s-seg").textContent = st.segments; $("s-bad").textContent = st.bad_segments;
+  $("s-active").textContent = active; $("s-cand").textContent = rs.length - active;
+}
+
+const LEVEL_NAMES = { high:"сериозен", mid:"среден", low:"лек", none:"не знае", skipped:"пропуснал" };
+async function select(id, tripId, fresh) {
+  selected = id; if (tripId) selectedTrip = tripId;
+  const [r, t] = await Promise.all([
+    fetch(`/api/reports/${id}/`).then(x => x.json()),
+    selectedTrip ? fetch(`/api/trip/${selectedTrip}/`).then(x => x.json()) : null,
+  ]);
+  const c = COLORS();
+  detail.clearLayers();
+  // пътуването, в което е засечено (ако е подадено)
+  if (t && t.path.length) {
+    L.polyline(t.path, { color:css("--gosho"), weight:5, opacity:.8 }).addTo(detail);
+    if (t.deviation_window && t.deviation_window.route)
+      L.polyline(t.deviation_window.route, { color:css("--route"), weight:5, opacity:.9, dashArray:"10 8" }).addTo(detail);
+  }
+  // всяко отклонение: checkpoint (къде е излязъл) -> оценка (къде е препятствието)
+  r.deviations.forEach(d => {
+    if (d.cp) {
+      L.polyline([d.cp, [d.lat, d.lng]], { color:css("--alert"), weight:1.5, opacity:.6 }).addTo(detail);
+      L.circleMarker(d.cp, { radius:5, color:"#fff", weight:1.5, fillColor:css("--alert"), fillOpacity:1 }).addTo(detail).bindTooltip("Checkpoint на отклонение");
+    }
+    L.circleMarker([d.lat, d.lng], { radius:4, color:css("--alert"), weight:2, fillOpacity:0 }).addTo(detail);
+  });
+  const by = r.answers.by_level, total = r.answers.total || 1;
+  const bars = ["high", "mid", "low", "none", "skipped"].filter(k => by[k])
+    .map(k => `<i style="width:${100 * by[k] / total}%;background:${k === "skipped" ? "var(--line)" : c[k]}" title="${LEVEL_NAMES[k]}: ${by[k]}"></i>`).join("");
+  const answersTxt = r.answers.total
+    ? ["high", "mid", "low", "none", "skipped"].filter(k => by[k]).map(k => `${by[k]} ${LEVEL_NAMES[k]}`).join(", ") : "няма";
+  const pct = Math.min(100, 100 * r.deviation_users / MIN_USERS);
+  const tripTxt = t && t.minutes ? `
+      <dt>Пътуване</dt><dd>${t.minutes} мин. следене, ${t.same_minutes} съвпадат</dd>
+      ${t.deviation_window ? `<dt>Засечено</dt><dd>в прозореца мин. ${t.deviation_window.from + 1}–${t.deviation_window.to + 1}, +${Math.round(t.deviation_window.extra_m)} м</dd>` : ""}` : "";
+  const a = $("analysis");
+  a.innerHTML = `
+    <h2><span class="dot" style="background:${c[r.level]}"></span>${esc(r.type_label)}</h2>
+    <dl>
+      <dt>Тежест</dt><dd>${esc(r.level_label)}</dd>
+      <dt>Статус</dt><dd>${r.status === "active" ? "Активен" : "Кандидат"} (${r.source === "auto" ? "засечен от отклонения" : "докладван"})</dd>
+      ${r.source === "auto" ? `<dt>Заобиколили</dt><dd>${r.deviation_users} от нужните ${MIN_USERS} души</dd>` : ""}
+      <dt>Въпросник</dt><dd>${answersTxt}</dd>
+      <dt>Потвърдили</dt><dd>${r.confirmations}${r.denials ? `, отрекли ${r.denials}` : ""}</dd>
+      <dt>Приоритет</dt><dd>${r.priority} (сигурност ${r.confidence})</dd>
+      ${tripTxt}
+    </dl>
+    ${r.source === "auto" ? `<div class="meter" title="Различни хора спрямо прага"><i style="width:${pct}%"></i></div>` : ""}
+    ${r.answers.total ? `<div class="bars">${bars}</div>` : ""}
+    <div class="note">Червените точки са checkpoint-ите, в които хората са излезли от маршрута. Кръгчетата са оценката къде е препятствието - средата на пропуснатата част от маршрута.</div>`;
+  a.classList.add("show");
+  if (fresh) { a.classList.remove("fresh"); void a.offsetWidth; a.classList.add("fresh"); }
+  await load();
+  map.invalidateSize();
+  const bounds = L.latLngBounds([[r.lat, r.lng]]);
+  if (t && t.path.length) t.path.forEach(p => bounds.extend(p));
+  r.deviations.forEach(d => { if (d.cp) bounds.extend(d.cp); });
+  map.fitBounds(bounds.pad(0.2), { maxZoom:18 });
+  if (markers[id]) markers[id].bindPopup(`<b>${esc(r.type_label)}</b><br>${esc(r.level_label)}`).openPopup();
+}
+
+// пътуване без отклонение: показваме, че е следено и всичко съвпада
+async function showTrip(tripId) {
+  const t = await fetch(`/api/trip/${tripId}/`).then(x => x.json());
+  if (!t.minutes) return load();
+  selected = null; selectedTrip = null;
+  detail.clearLayers();
+  L.polyline(t.path, { color:css("--gosho"), weight:5, opacity:.8 }).addTo(detail);
+  const a = $("analysis");
+  a.innerHTML = `<h2>Пътуване без отклонение</h2>
+    <dl><dt>Следене</dt><dd>${t.minutes} мин., ${t.same_minutes} съвпадат с препоръчания маршрут</dd>
+    <dt>Резултат</dt><dd>Нищо за записване</dd></dl>
+    <div class="note">Всяка минута сравняваме последните минути от пътя с препоръчания маршрут. Когато съвпадат, не пазим отклонение.</div>`;
+  a.classList.add("show");
+  await load();
+  map.invalidateSize();
+  map.fitBounds(L.latLngBounds(t.path).pad(0.2), { maxZoom:18 });
+}
+
+// резултати от телефона на живо
+if ("BroadcastChannel" in window) {
+  const bus = new BroadcastChannel("myability-path");
+  bus.onmessage = ({ data }) => {
+    if (!data) return;
+    if (data.report_id && (data.type === "demo_done" || data.type === "deviation" || data.type === "trip")) select(data.report_id, data.trip_id, data.type === "demo_done");
+    else if (data.type === "trip" && data.trip_id) showTrip(data.trip_id);
+    else if (data.report_id && data.report_id === selected) select(selected);
+    else load();
+  };
+}
+{% if debug %}
+$("reset").onclick = async () => {
+  if (!confirm("Да изтрия ли всички проблеми, отклонения и отговори?")) return;
+  await fetch("/api/demo/reset/", { method:"POST" });
+  selected = selectedTrip = null; detail.clearLayers(); $("analysis").classList.remove("show"); load();
+};
+{% endif %}
+const q = new URLSearchParams(location.search);
+load().then(() => { if (q.get("focus")) select(+q.get("focus"), q.get("trip"), true); });
+setInterval(load, 10000);
+</script>
+</body>
+</html>

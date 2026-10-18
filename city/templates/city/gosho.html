@@ -1,0 +1,839 @@
+<!doctype html>
+<html lang="bg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MyAbility Path</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>♿</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root {
+    --paper:#F3F5F2; --surface:#FFFFFF; --ink:#1F2430; --muted:#596170; --line:#D7DCD4;
+    --route:#12805C; --gosho:#2A4FD6; --alert:#D62839; --signal:#FFC20E; --stage:#D9E0D6;
+    --high:#D62839; --mid:#E87500; --low:#D9A400; --none:#7B8494; --bezel:#1A1C21;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:#15181E; --surface:#1E222A; --ink:#EEF0F3; --muted:#797f8a; --line:#343A46;
+      --route:#3DBE8B; --gosho:#7E9CFF; --alert:#FF5468; --stage:#f3f3f3; --none:#8C95A5; --bezel:#000;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing:border-box; }
+  html, body { height:100%; margin:0; }
+  body { font-family:"Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif; color:var(--ink); background:var(--stage); }
+  button { font:inherit; color:inherit; cursor:pointer; }
+  button:focus-visible, a:focus-visible { outline:3px solid var(--gosho); outline-offset:2px; }
+
+  /* ---------- сцена: телефон + панел MAP ---------- */
+  .stage { height:100%; display:flex; gap:28px; align-items:center; justify-content:center; padding:24px; }
+  .phone { position:relative; width:390px; height:min(844px, calc(100vh - 48px)); flex:none;
+           border:12px solid var(--bezel); border-radius:54px; background:var(--paper); overflow:hidden;
+           box-shadow:0 30px 60px -20px rgba(20,30,20,.45); }
+  .screen { position:absolute; inset:0; overflow:hidden; display:flex; flex-direction:column; }
+  .side { flex:1; max-width:880px; height:min(844px, calc(100vh - 48px)); display:flex; flex-direction:column; gap:10px; }
+  .side header { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
+  .side h2 { margin:0; font-size:20px; color: #343A46; }
+  .side p { margin:0; color:var(--muted); font-size:15px; }
+  .side iframe { flex:1; width:100%; border:1px solid var(--line); border-radius:18px; background:var(--surface); }
+  .side a { color:inherit; margin-left:auto; font-size:15px; }
+  @media (max-width:1180px) { .side { display:none; } }
+  @media (max-width:520px), (max-height:640px) {
+    .stage { padding:0; }
+    .phone { width:100%; height:100%; border:0; border-radius:0; box-shadow:none; }
+    .statusbar { display:none !important; }
+  }
+
+  /* ---------- телефон отвътре ---------- */
+  .statusbar { height:44px; flex:none; display:flex; align-items:center; justify-content:space-between; padding:0 28px; font-weight:700; font-size:15px; background:var(--surface); }
+  .statusbar .notch { width:118px; height:30px; background:var(--bezel); border-radius:0 0 18px 18px; margin-top:-14px; }
+  .statusbar .sig { letter-spacing:1px; font-size:13px; }
+  .mapwrap { position:relative; flex:1; min-height:0; }
+  #map { position:absolute; inset:0; background:var(--paper); }
+  .appbar { position:absolute; z-index:500; top:10px; left:10px; right:10px; display:flex; gap:8px; align-items:center; pointer-events:none; }
+  .appbar > * { pointer-events:auto; }
+  .brand { background:var(--surface); border-radius:14px; padding:8px 12px; font-weight:700; font-size:16px; box-shadow:0 2px 10px rgba(0,0,0,.18); }
+  .who { margin-left:auto; background:var(--surface); border-radius:999px; padding:8px 12px; font-size:15px; box-shadow:0 2px 10px rgba(0,0,0,.18); }
+  .scene { position:absolute; z-index:550; left:10px; right:10px; top:62px; background:var(--ink); color:var(--paper);
+           border-radius:14px; padding:10px 14px; font-size:15px; line-height:1.35; display:none; }
+  .scene.show { display:block; }
+  .scene b { display:block; font-size:13px; opacity:.75; font-weight:400; margin-bottom:2px; }
+  .hintbar { position:absolute; z-index:540; left:10px; right:10px; bottom:10px; background:var(--surface); border-left:5px solid var(--gosho);
+             border-radius:10px; padding:9px 12px; font-size:15px; box-shadow:0 2px 10px rgba(0,0,0,.18); display:none; }
+  .hintbar.show { display:block; }
+  .hintbar.obstacle { border-left-color:var(--signal); }
+
+  .sheet { flex:none; background:var(--surface); border-top:1px solid var(--line); padding:10px 12px calc(12px + env(safe-area-inset-bottom)); display:flex; flex-direction:column; gap:10px; }
+  .status { display:flex; gap:8px; align-items:center; min-height:34px; }
+  .chip { border-radius:999px; padding:6px 12px; font-size:15px; background:var(--paper); border:1px solid var(--line); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+  .chip.ok { border-color:var(--route); color:var(--route); }
+  .chip.warn { border-color:var(--mid); color:var(--mid); }
+  .chip.bad { border-color:var(--alert); color:var(--alert); font-weight:700; }
+  .status .min { margin-left:auto; color:var(--muted); font-size:14px; white-space:nowrap; }
+
+  .tools { display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; }
+  .tool { position:relative; min-height:62px; border-radius:14px; border:1px solid var(--line); background:var(--paper);
+          display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; padding:6px 4px; font-size:14px; line-height:1.15; text-align:center; }
+  .tool .ico { font-size:22px; line-height:1; }
+  .tool.on { box-shadow:inset 0 0 0 3px var(--gosho); }
+  .tool:disabled { opacity:.45; cursor:default; }
+  .tool.go { background:var(--gosho); color:#fff; border-color:var(--gosho); font-weight:700; }
+  .tool.demo { background:var(--ink); color:var(--paper); border-color:var(--ink); font-weight:700; }
+  .tool.demo.running { background:var(--alert); border-color:var(--alert); color:#fff; }
+  /* единственият "шумен" елемент: лента като на строителна бариера */
+  .tool.hazard { border:0; padding-top:12px; overflow:hidden; box-shadow:inset 0 0 0 1px var(--line); }
+  .tool.hazard::before { content:""; position:absolute; left:0; right:0; top:0; height:7px;
+          background:repeating-linear-gradient(-45deg, var(--signal) 0 9px, #1F2430 9px 18px); }
+  .tool.hazard.on { box-shadow:inset 0 0 0 3px var(--signal); }
+
+  .logrow { display:flex; gap:8px; align-items:center; }
+  .logrow button { border:0; background:none; padding:4px 0; color:var(--muted); font-size:14px; text-decoration:underline; }
+  .logrow .small { margin-left:auto; }
+  #log { display:none; max-height:150px; overflow:auto; font-size:14px; line-height:1.45; background:var(--paper); border-radius:10px; padding:8px 10px; }
+  #log.open { display:block; }
+  #log div { margin-bottom:3px; }
+  #log .ok { color:var(--route); } #log .bad { color:var(--alert); } #log .info { color:var(--muted); }
+
+  /* модали като долни листове вътре в телефона */
+  .modal { position:absolute; inset:0; z-index:1000; background:rgba(10,12,16,.5); display:none; align-items:flex-end; }
+  .modal.open { display:flex; }
+  .modal .box { background:var(--surface); width:100%; border-radius:22px 22px 0 0; padding:18px 16px calc(18px + env(safe-area-inset-bottom)); max-height:92%; overflow:auto; }
+  .modal h3 { margin:0 0 4px; font-size:20px; }
+  .modal p { margin:0 0 6px; color:var(--muted); font-size:15px; line-height:1.4; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:10px 0 14px; }
+  .choice, .btn { border-radius:14px; border:1px solid var(--line); background:var(--paper); padding:14px 10px; font-size:15px; color:var(--ink); }
+  .choice.selected { box-shadow:inset 0 0 0 3px var(--gosho); }
+  .tap { animation:tap .45s ease-out; }
+  @keyframes tap { from { transform:scale(.92); } to { transform:scale(1); } }
+  .btnrow { display:flex; gap:8px; }
+  .btnrow .btn { flex:1; }
+  .btn.primary { background:var(--gosho); color:#fff; border-color:var(--gosho); font-weight:700; }
+  .result { display:grid; grid-template-columns:auto 1fr; gap:6px 14px; font-size:15px; margin:12px 0 16px; }
+  .result dt { color:var(--muted); }
+  .result dd { margin:0; font-weight:700; }
+
+  /* маркери */
+  .pin { font-size:24px; line-height:1; filter:drop-shadow(0 1px 2px rgba(0,0,0,.4)); }
+  .gosho-pin { width:34px; height:34px; border-radius:50%; background:var(--gosho); border:3px solid #fff; display:grid; place-items:center; font-size:18px; box-shadow:0 2px 6px rgba(0,0,0,.35); }
+  .cone { width:38px; height:38px; border-radius:50%; display:grid; place-items:center; font-size:22px; background:var(--signal);
+          box-shadow:0 0 0 4px rgba(255,194,14,.35), 0 2px 6px rgba(0,0,0,.35); }
+  .cone.drop { animation:drop .5s cubic-bezier(.3,1.6,.6,1); }
+  @keyframes drop { from { transform:translateY(-40px) scale(.6); opacity:0; } to { transform:none; opacity:1; } }
+  .qpin { width:28px; height:28px; border-radius:50%; background:var(--mid); color:#fff; font-weight:700; display:grid; place-items:center; border:3px solid #fff; }
+  @media (prefers-reduced-motion: reduce) { .cone.drop, .tap { animation:none; } }
+  .leaflet-container { font-family:inherit; }
+  .leaflet-popup-content { font-size:15px; }
+  .leaflet-popup-content .btnrow { margin-top:8px; }
+  .leaflet-popup-content .btn { padding:8px; font-size:14px; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="phone">
+    <div class="screen">
+      <div class="statusbar"><span id="clock">9:41</span><span class="notch"></span><span class="sig">▂▄▆ 5G</span></div>
+      <div class="mapwrap">
+        <div id="map"></div>
+        <div class="appbar">
+          <div class="brand">MyAbility Path</div>
+          <div class="who" id="who">♿ Диди</div>
+        </div>
+        <div class="scene" id="scene" role="status" aria-live="polite"><b id="sceneNo"></b><span id="sceneText"></span></div>
+        <div class="hintbar" id="hint" role="status" aria-live="polite"></div>
+      </div>
+      <div class="sheet">
+        <div class="status">
+          <span class="chip" id="chip">Готов за път</span>
+          <span class="min" id="minute"></span>
+        </div>
+        <div class="tools">
+          <button class="tool" id="tRoute"><span class="ico">📍</span><span class="lbl">Маршрут</span></button>
+          <button class="tool hazard" id="tObstacle"><span class="ico">🚧</span><span class="lbl">Препятствие</span></button>
+          <button class="tool go" id="tGo"><span class="ico">▶</span><span class="lbl">Тръгни</span></button>
+          <button class="tool demo" id="tDemo"><span class="ico">🎬</span><span class="lbl">Авто демо</span></button>
+          <button class="tool" id="tReport"><span class="ico">⚠️</span><span class="lbl">Докладвай</span></button>
+          <button class="tool" id="tUser"><span class="ico">👤</span><span class="lbl">Друг човек</span></button>
+        </div>
+        <div class="logrow">
+          <button id="logToggle" aria-expanded="false">Журнал</button>
+          <button class="small" id="tClear">Изчисти картата</button>
+        </div>
+        <div id="log" aria-live="polite"></div>
+      </div>
+
+      <!-- Съгласие за следене (MAP: "виждаме нов потребител") -->
+      <div class="modal" id="consentModal"><div class="box">
+        <h3>Помогни градът да стане достъпен</h3>
+        <p>Докато се движиш, приложението записва маршрута ти на всяка минута и го сравнява с препоръчания. Така откриваме места, които хората заобикалят.</p>
+        <p>Не пазим името ти, само анонимен номер.</p>
+        <div class="btnrow" id="consentBtns" style="margin-top:14px">
+          <button class="btn" data-v="no">Не сега</button>
+          <button class="btn primary" data-v="yes">Разреши следене</button>
+        </div>
+      </div></div>
+
+      <!-- Докладване -->
+      <div class="modal" id="reportModal"><div class="box">
+        <h3>Какъв е проблемът?</h3>
+        <div class="grid" id="typeGrid">
+          <button class="choice" data-v="ramp">♿ Липсва рампа</button>
+          <button class="choice" data-v="stairs">🪜 Стълби</button>
+          <button class="choice" data-v="narrow">↔️ Тясно / блокирано</button>
+          <button class="choice" data-v="other">❔ Друго</button>
+        </div>
+        <h3>Колко е сериозно?</h3>
+        <div class="grid" id="levelGrid">
+          <button class="choice" data-v="high">🔴 Сериозно</button>
+          <button class="choice" data-v="mid">🟠 Средно</button>
+          <button class="choice" data-v="low">🟡 Леко</button>
+          <button class="choice" data-v="none">⚪ Не знам</button>
+        </div>
+        <div class="btnrow">
+          <button class="btn" id="cancelReport">Отказ</button>
+          <button class="btn primary" id="sendReport">Изпрати доклада</button>
+        </div>
+      </div></div>
+
+      <!-- Въпросник след засечено отклонение -->
+      <div class="modal" id="surveyModal"><div class="box">
+        <h3>Заобиколи ли нещо тук?</h3>
+        <p>Отклони се от препоръчания маршрут. Кажи ни какво имаше, за да го отбележим за другите.</p>
+        <div class="grid" id="sTypeGrid">
+          <button class="choice" data-v="ramp">♿ Липсва рампа</button>
+          <button class="choice" data-v="stairs">🪜 Стълби</button>
+          <button class="choice" data-v="narrow">↔️ Тясно / блокирано</button>
+          <button class="choice" data-v="other">❔ Друго</button>
+        </div>
+        <div class="grid" id="sLevelGrid">
+          <button class="choice" data-v="high">🔴 Сериозно</button>
+          <button class="choice" data-v="mid">🟠 Средно</button>
+          <button class="choice" data-v="low">🟡 Леко</button>
+          <button class="choice" data-v="none">⚪ Не знам</button>
+        </div>
+        <div class="btnrow">
+          <button class="btn" id="skipSurvey">Пропусни</button>
+          <button class="btn primary" id="sendSurvey">Изпрати</button>
+        </div>
+      </div></div>
+
+      <!-- Потвърждаване на съществуващ репорт (да/не) -->
+      <div class="modal" id="confirmModal"><div class="box">
+        <h3>Още ли е там?</h3>
+        <p id="confirmText"></p>
+        <div class="btnrow" id="confirmBtns" style="margin-top:14px">
+          <button class="btn" data-v="skip">Не знам</button>
+          <button class="btn" data-v="no">Не, няма го</button>
+          <button class="btn primary" data-v="yes">Да, там е</button>
+        </div>
+      </div></div>
+
+      <!-- Край на авто демото -->
+      <div class="modal" id="doneModal"><div class="box">
+        <h3>Анализът е в панела на MAP</h3>
+        <dl class="result" id="doneResult"></dl>
+        <div class="btnrow">
+          <a class="btn" id="doneOpen" href="/map/" target="_blank" style="text-align:center;text-decoration:none">Отвори панела</a>
+          <button class="btn primary" id="doneClose">Готово</button>
+        </div>
+      </div></div>
+    </div>
+  </div>
+
+  <div class="side">
+    <header><h2>Панел на MAP</h2><p>Тук идват отклоненията, отговорите и потвържденията.</p><a href="/map/" target="_blank">Цял екран</a></header>
+    <iframe src="/map/?embed=1" title="Панел на MyAbility Path"></iframe>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+{{ tiles|json_script:"tiles" }}
+<script>
+const TILES = JSON.parse(document.getElementById("tiles").textContent);
+// Плочки от settings.TILE_URL. Ако доставчикът започне да отказва (ключ, лимит), минаваме на OSM.
+function addTiles(map, cfg) {
+  const OSM = { url:"https://tile.openstreetmap.org/{z}/{x}/{y}.png", attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>', max_zoom:19 };
+  const opts = { referrerPolicy:"strict-origin-when-cross-origin" };   // OSM иска Referer
+  let layer = L.tileLayer(cfg.url, { ...opts, maxZoom:cfg.max_zoom, attribution:cfg.attribution }).addTo(map);
+  let errors = 0;
+  layer.on("tileerror", () => {
+    if (++errors < 4 || cfg.url === OSM.url) return;
+    map.removeLayer(layer);
+    layer = L.tileLayer(OSM.url, { ...opts, maxZoom:OSM.max_zoom, attribution:OSM.attribution }).addTo(map);
+    console.warn("Плочките от " + cfg.url + " не се зареждат - минавам на OpenStreetMap.");
+  });
+}
+const CENTER = {{ center|safe }}, ZOOM = {{ zoom }};
+const WALK_M = {{ walk_m }};                 // метра ходене = "1 минута"
+const MIN_USERS = {{ min_users }};
+const WINDOW_MIN = {{ window_min }};
+const DEMO_A = {{ demo_a|safe }}, DEMO_B = {{ demo_b|safe }};
+const DEMO_LABELS = {{ demo_labels|safe }};
+// Хората в демото. Първата е Диди, следващите са други потребители със същото приложение.
+const NAMES = ["Диди", "Иво", "Мира", "Сашо", "Ани", "Боби", "Вики", "Краси"];
+const nameOf = (n) => NAMES[n - 1] || `Потребител #${n}`;
+const PROVIDER = "{{ provider }}";
+const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const $ = (id) => document.getElementById(id);
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const C = () => ({ route:css("--route"), gosho:css("--gosho"), alert:css("--alert"),
+                   high:css("--high"), mid:css("--mid"), low:css("--low"), none:css("--none") });
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+async function post(url, data) {
+  const r = await fetch(url, { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(data) });
+  if (!r.ok) throw new Error(`${url} → ${r.status}`);
+  return r.json();
+}
+async function get(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${url} → ${r.status}`);
+  return r.json();
+}
+// връзка с панела на MAP (iframe-а до телефона или друг таб)
+const bus = ("BroadcastChannel" in window) ? new BroadcastChannel("myability-path") : { postMessage(){} };
+
+const tick = () => { const d = new Date(); $("clock").textContent = d.getHours() + ":" + String(d.getMinutes()).padStart(2, "0"); };
+tick(); setInterval(tick, 20000);
+
+// ---------- геометрия ----------
+function dist(a, b) {
+  const R = 6371000, rad = Math.PI / 180;
+  const dLat = (b[0] - a[0]) * rad, dLng = (b[1] - a[1]) * rad;
+  const h = Math.sin(dLat/2)**2 + Math.cos(a[0]*rad) * Math.cos(b[0]*rad) * Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+const lengthOf = (pts) => pts.reduce((s, p, i) => i ? s + dist(pts[i-1], p) : 0, 0);
+function densify(pts, step = 5) {
+  const out = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i-1], b = pts[i], n = Math.max(1, Math.floor(dist(a, b) / step));
+    for (let k = 1; k <= n; k++) out.push([a[0] + (b[0]-a[0]) * k/n, a[1] + (b[1]-a[1]) * k/n]);
+  }
+  return out;
+}
+// "1 минута" = ~WALK_M метра; съседните минути делят checkpoint
+function toMinutes(pts) {
+  const d = densify(pts), out = [];
+  let start = 0, acc = 0;
+  for (let i = 1; i < d.length; i++) {
+    acc += dist(d[i-1], d[i]);
+    if (acc >= WALK_M) { out.push(d.slice(start, i + 1)); start = i; acc = 0; }
+  }
+  if (start < d.length - 1) {
+    if (acc < 15 && out.length) out[out.length - 1].push(...d.slice(start + 1));
+    else out.push(d.slice(start));
+  }
+  return out;
+}
+function nearestOn(line, p) {
+  let best = null;
+  for (const q of densify(line, 3)) { const d = dist(p, q); if (!best || d < best.d) best = { d, q }; }
+  return best;
+}
+function pointAt(line, frac) {
+  const total = lengthOf(line); let acc = 0;
+  for (let i = 1; i < line.length; i++) {
+    const s = dist(line[i-1], line[i]);
+    if (acc + s >= total * frac) {
+      const t = s ? (total * frac - acc) / s : 0;
+      return [line[i-1][0] + (line[i][0]-line[i-1][0]) * t, line[i-1][1] + (line[i][1]-line[i-1][1]) * t];
+    }
+    acc += s;
+  }
+  return line[line.length - 1];
+}
+
+// ---------- карта ----------
+const map = L.map("map", { zoomControl:false }).setView(CENTER, ZOOM);
+addTiles(map, TILES);
+const L_reports = L.layerGroup().addTo(map);
+const L_plan = L.layerGroup().addTo(map);     // вкъщи, работа, препоръчан маршрут, преглед на заобикалянето
+const L_obst = L.layerGroup().addTo(map);
+const L_trip = L.layerGroup().addTo(map);     // следата и анализът на текущото пътуване
+const divIcon = (html, size) => L.divIcon({ html, className:"", iconSize:[size, size], iconAnchor:[size/2, size/2] });
+const pinIcon = (e) => L.divIcon({ html:`<div class="pin">${e}</div>`, className:"", iconSize:[28, 28], iconAnchor:[14, 26] });
+
+// ---------- състояние ----------
+const S = {
+  userNo:1, userId:null, consent:false,
+  start:null, end:null, base:null, detour:null, obstacles:[],
+  mode:null, busy:false, demo:false, abort:false, reports:[],
+};
+const newId = () => "user-" + Math.random().toString(36).slice(2, 10);
+S.userId = newId();
+
+function log(msg, cls = "info") { const d = document.createElement("div"); d.className = cls; d.textContent = msg; $("log").prepend(d); }
+function chip(text, cls = "") { $("chip").className = "chip " + cls; $("chip").textContent = text; }
+function hint(text, cls = "") { const h = $("hint"); h.className = "hintbar" + (text ? " show " + cls : ""); h.textContent = text || ""; }
+function scene(no, total, text) {
+  if (!text) { $("scene").classList.remove("show"); return; }
+  $("sceneNo").textContent = `Сцена ${no} от ${total}`; $("sceneText").textContent = text; $("scene").classList.add("show");
+}
+function setMode(m) {
+  S.mode = m;
+  $("tRoute").classList.toggle("on", m === "route");
+  $("tObstacle").classList.toggle("on", m === "obstacle");
+  $("tReport").classList.toggle("on", m === "report");
+  const text = {
+    route: S.start && !S.end ? "Докосни къде отива." : "Докосни откъде тръгва Диди.",
+    obstacle: "Докосни улицата, за да сложиш препятствие. Докосни 🚧, за да го махнеш.",
+    report: "Докосни мястото на проблема.",
+  }[m];
+  hint(text, m === "obstacle" ? "obstacle" : "");
+}
+const toggleMode = (m) => setMode(S.mode === m ? null : m);
+function lock(on) {
+  S.busy = on;
+  ["tRoute", "tObstacle", "tGo", "tReport", "tUser", "tClear"].forEach(id => $(id).disabled = on);
+  $("tDemo").disabled = on && !S.demo;
+}
+const label = (id, text) => $(id).querySelector(".lbl").textContent = text;
+
+// ---------- маршрут и препятствия ----------
+function drawPlan() {
+  L_plan.clearLayers();
+  const c = C();
+  if (S.base) L.polyline(S.base, { color:c.route, weight:6, opacity:.85, dashArray:"10 10" }).addTo(L_plan).bindTooltip("Препоръчан маршрут");
+  if (S.detour && S.detour.method !== "none")
+    L.polyline(S.detour.path, { color:c.gosho, weight:4, opacity:.5, dashArray:"2 8" }).addTo(L_plan).bindTooltip("Оттук Диди ще заобиколи");
+  const demo = S.start === DEMO_A && S.end === DEMO_B;
+  if (S.start) L.marker(S.start, { icon:pinIcon("🏠") }).addTo(L_plan).bindTooltip(demo ? DEMO_LABELS[0] : "Старт");
+  if (S.end) L.marker(S.end, { icon:pinIcon("🏛️") }).addTo(L_plan).bindTooltip(demo ? DEMO_LABELS[1] : "Цел");
+}
+function drawObstacles(dropLast = false) {
+  L_obst.clearLayers();
+  S.obstacles.forEach((o, i) => {
+    const anim = dropLast && i === S.obstacles.length - 1 ? " drop" : "";
+    const m = L.marker(o, { icon:divIcon(`<div class="cone${anim}">🚧</div>`, 38), zIndexOffset:900 }).addTo(L_obst);
+    m.on("click", async () => {
+      if (S.busy || S.mode !== "obstacle") return;
+      S.obstacles.splice(i, 1); drawObstacles(); lock(true);
+      try { await refreshDetour(); } catch (e) { log(e.message, "bad"); }
+      lock(false);
+    });
+  });
+}
+async function loadBase() {
+  const a = S.start, b = S.end;
+  const res = await get(`/api/route/?alat=${a[0]}&alng=${a[1]}&blat=${b[0]}&blng=${b[1]}`);
+  S.base = res.route;
+  if (res.route_source === "mock") log("Маршрутната услуга не отговаря - ползвам права линия.", "bad");
+  else log(`Препоръчан маршрут (${res.route_source}): ${Math.round(lengthOf(S.base))} м.`);
+  await refreshDetour();
+}
+const METHOD = { ors_avoid:"по улиците (ORS)", via:"през съседна улица", sketch:"схематично (без маршрутна услуга)", none:"" };
+async function refreshDetour() {
+  if (!S.start || !S.end || !S.obstacles.length) { S.detour = null; drawPlan(); return; }
+  S.detour = await post("/api/detour/", { a:S.start, b:S.end, obstacles:S.obstacles });
+  S.base = S.detour.base;
+  if (S.detour.method === "none") log("Препятствието не е на маршрута - Диди няма да го усети.", "bad");
+  else log(`Диди ще заобиколи ${METHOD[S.detour.method]}: +${Math.round(lengthOf(S.detour.path) - lengthOf(S.base))} м.`);
+  drawPlan();
+}
+async function ensureRoute() {
+  if (S.start && S.end && S.base) return;
+  if (!S.start || !S.end) { S.start = DEMO_A; S.end = DEMO_B; log(`Ползвам демо маршрута: ${DEMO_LABELS[0]} → ${DEMO_LABELS[1]}.`); }
+  await loadBase();
+  map.fitBounds(L.latLngBounds(S.base), { padding:[50, 50] });
+}
+function placeObstacle(p) {
+  if (S.base) { const n = nearestOn(S.base, p); if (n.d < 40) p = n.q; }   // залепва се върху маршрута
+  S.obstacles.push(p); drawObstacles(true);
+}
+
+// ---------- докосване на картата ----------
+map.on("click", async (e) => {
+  if (S.busy) return;
+  const p = [e.latlng.lat, e.latlng.lng];
+  if (S.mode === "route") {
+    if (!S.start || S.end) {
+      Object.assign(S, { start:p, end:null, base:null, detour:null });
+      L_trip.clearLayers(); drawPlan(); setMode("route"); return;
+    }
+    S.end = p; setMode(null); lock(true);
+    try { await loadBase(); } catch (err) { log("Маршрутът не се зареди: " + err.message, "bad"); }
+    lock(false); return;
+  }
+  if (S.mode === "obstacle") {
+    placeObstacle(p); lock(true);
+    try { await refreshDetour(); } catch (err) { log("Заобикалянето не се изчисли: " + err.message, "bad"); }
+    lock(false); return;
+  }
+  if (S.mode === "report") { setMode(null); reportAt = p; openModal("reportModal"); }
+});
+
+// ---------- модали ----------
+function openModal(id) { $(id).classList.add("open"); }
+function closeModal(id) { $(id).classList.remove("open"); }
+function pickable(gridId) {
+  $(gridId).querySelectorAll(".choice").forEach(b => b.addEventListener("click", () => {
+    $(gridId).querySelectorAll(".choice").forEach(x => x.classList.remove("selected")); b.classList.add("selected");
+  }));
+}
+const val = (gridId, dflt) => { const s = $(gridId).querySelector(".selected"); return s ? s.dataset.v : dflt; };
+const clearPick = (gridId) => $(gridId).querySelectorAll(".choice").forEach(x => x.classList.remove("selected"));
+["typeGrid", "levelGrid", "sTypeGrid", "sLevelGrid"].forEach(pickable);
+async function fakeTap(el, wait = 650) {            // авто демото "натиска" видимо
+  await sleep(REDUCED ? 150 : (S.demo ? Math.min(wait, PACE.tap) : wait));
+  el.classList.remove("tap"); void el.offsetWidth; el.classList.add("tap"); el.click();
+}
+const choiceIn = (gridId, v) => $(gridId).querySelector(`[data-v="${v}"]`);
+const waitButtons = (boxId) => new Promise(res => $(boxId).querySelectorAll("button[data-v]").forEach(b => b.onclick = () => res(b.dataset.v)));
+
+// съгласие за следене
+async function askConsent(auto) {
+  if (S.consent) return true;
+  openModal("consentModal");
+  const wait = waitButtons("consentBtns");
+  if (auto) fakeTap($("consentBtns").querySelector('[data-v="yes"]'), 900);
+  const v = await wait; closeModal("consentModal");
+  S.consent = v === "yes";
+  log(S.consent ? `${nameOf(S.userNo)} разреши следене.` : "Без разрешение не следим маршрута.", S.consent ? "ok" : "bad");
+  return S.consent;
+}
+
+// докладване (Диди, вариант 1)
+let reportAt = null;
+$("cancelReport").onclick = () => closeModal("reportModal");
+$("sendReport").onclick = async () => {
+  try {
+    const r = await post("/api/reports/create/", { lat:reportAt[0], lng:reportAt[1], type:val("typeGrid", "other"), level:val("levelGrid", "none") });
+    log("Проблемът е докладван.", "ok"); chip("Докладът е изпратен", "ok");
+    bus.postMessage({ type:"report", report_id:r.id }); loadReports();
+  } catch (e) { log("Докладът не се изпрати: " + e.message, "bad"); }
+  closeModal("reportModal"); clearPick("typeGrid"); clearPick("levelGrid");
+};
+
+// въпросник след отклонение (MAP, стъпки 6-9)
+async function survey(reportId, auto, uid = S.userId) {
+  openModal("surveyModal");
+  const done = new Promise(res => {
+    $("skipSurvey").onclick = async () => { await post("/api/answer/", { report_id:reportId, user_id:uid, skipped:true }); res("skip"); };
+    $("sendSurvey").onclick = async () => {
+      await post("/api/answer/", { report_id:reportId, user_id:uid, type:val("sTypeGrid", "other"), level:val("sLevelGrid", "none") });
+      res("sent");
+    };
+  });
+  if (auto) {
+    if (auto.skip) await fakeTap($("skipSurvey"), 1100);
+    else { await fakeTap(choiceIn("sTypeGrid", auto.type)); await fakeTap(choiceIn("sLevelGrid", auto.level)); await fakeTap($("sendSurvey")); }
+  }
+  const how = await done;
+  closeModal("surveyModal"); clearPick("sTypeGrid"); clearPick("sLevelGrid");
+  log(how === "skip" ? "Въпросникът е пропуснат - проблемът отива в анализа без информация." : `${nameOf(S.userNo)} описа проблема.`, how === "skip" ? "info" : "ok");
+  return how;
+}
+
+// потвърждаване на съществуващ репорт (Диди, вариант 2: да/не)
+async function askStillThere(r, auto) {
+  $("confirmText").textContent = `Наблизо има докладван проблем: ${r.type_label.toLowerCase()}, ${r.level_label.toLowerCase()}. Потвърдено ${r.confirmations} пъти.`;
+  openModal("confirmModal");
+  const wait = waitButtons("confirmBtns");
+  if (auto) fakeTap($("confirmBtns").querySelector(`[data-v="${auto}"]`), 1300);
+  const v = await wait; closeModal("confirmModal");
+  if (v !== "skip") {
+    await post(`/api/reports/${r.id}/confirm/`, { still_there: v === "yes" });
+    log(v === "yes" ? `${nameOf(S.userNo)} потвърди, че проблемът е още там.` : `${nameOf(S.userNo)} каза, че проблемът вече го няма.`, "ok");
+    bus.postMessage({ type:"report", report_id:r.id }); loadReports();
+  }
+  return v;
+}
+
+// ---------- проблемите на картата (Диди вижда само активните) ----------
+async function loadReports() {
+  try { S.reports = (await get("/api/reports/")).reports; } catch { return; }
+  L_reports.clearLayers();
+  const c = C();
+  S.reports.forEach(r => {
+    const m = L.circleMarker([r.lat, r.lng], { radius:11, color:"#fff", weight:3, fillColor:c[r.level], fillOpacity:.95 }).addTo(L_reports);
+    const div = document.createElement("div");
+    div.innerHTML = `<b>${r.type_label}</b><br>${r.level_label}<br><small>Потвърдено ${r.confirmations} пъти, заобиколили ${r.deviation_users} души</small>`;
+    const row = document.createElement("div"); row.className = "btnrow";
+    [["no", "Няма го"], ["yes", "Още е там"]].forEach(([v, t]) => {
+      const b = document.createElement("button"); b.className = "btn" + (v === "yes" ? " primary" : ""); b.textContent = t;
+      b.onclick = async () => {
+        await post(`/api/reports/${r.id}/confirm/`, { still_there: v === "yes" });
+        map.closePopup(); loadReports(); bus.postMessage({ type:"report", report_id:r.id });
+      };
+      row.appendChild(b);
+    });
+    div.appendChild(row); m.bindPopup(div);
+  });
+}
+loadReports(); setInterval(() => { if (!S.busy) loadReports(); }, 15000);
+
+// ---------- фейк следене: Диди върви, всяка минута пращаме checkpoint ----------
+function animate(marker, pts, ms) {
+  if (REDUCED || lengthOf(pts) < 1) { marker.setLatLng(pts[pts.length - 1]); return Promise.resolve(); }
+  return new Promise(res => {
+    const t0 = performance.now();
+    const step = (t) => {
+      if (S.abort) return res();
+      const f = Math.min(1, (t - t0) / ms);
+      marker.setLatLng(pointAt(pts, f));
+      f < 1 ? requestAnimationFrame(step) : res();
+    };
+    requestAnimationFrame(step);
+  });
+}
+
+async function runTrip({ path, stepMs = 900, auto = null, name = "" }) {
+  const c = C(), trip = "trip-" + Math.random().toString(36).slice(2, 10), uid = S.userId;
+  const minutes = toMinutes(path);
+  L_trip.clearLayers();
+  const trail = L.polyline([path[0]], { color:c.gosho, weight:6, opacity:.95 }).addTo(L_trip);
+  const winLine = L.polyline([], { color:c.route, weight:7, opacity:.9, dashArray:"10 8" }).addTo(L_trip);
+  const me = L.marker(path[0], { icon:divIcon('<div class="gosho-pin">♿</div>', 34), zIndexOffset:1000 }).addTo(L_trip);
+  const asked = new Set();
+  const out = { trip, deviation:null, survey:null, minutes:minutes.length };
+  log(`${name || nameOf(S.userNo)} тръгва: ${minutes.length} мин. следене, прозорец ${WINDOW_MIN} мин.`);
+
+  async function handle(i, res) {
+    if (res.skipped) return;
+    if (res.route_source === "mock" && i === 0) log("Маршрутната услуга не отговаря - сравнявам с права линия.", "bad");
+    winLine.setLatLngs(res.route);
+    const span = res.window_from === i ? `мин. ${i + 1}` : `мин. ${res.window_from + 1}–${i + 1}`;
+    if (res.deviation) {
+      out.deviation = res;
+      L.polyline(res.window, { color:c.alert, weight:7, opacity:.9 }).addTo(L_trip);
+      L.circleMarker(res.checkpoint, { radius:9, color:"#fff", weight:3, fillColor:c.alert, fillOpacity:1 }).addTo(L_trip)
+        .bindTooltip("Checkpoint: тук излезе от маршрута");
+      L.marker(res.point, { icon:divIcon('<div class="qpin">?</div>', 28), zIndexOffset:950 }).addTo(L_trip)
+        .bindTooltip("Тук вероятно има препятствие");
+      const st = res.status === "active" ? "активен проблем" : `кандидат, ${res.users} от ${MIN_USERS} души`;
+      chip(`Отклонение +${res.extra_m} м, ${st}`, "bad");
+      log(`Мин. ${i + 1}: отклонение в прозореца ${span}, +${res.extra_m} м → ${st}.`, "bad");
+      bus.postMessage({ type:"deviation", trip_id:trip, report_id:res.report_id });
+      if (res.ask_survey) out.survey = await survey(res.report_id, auto && auto.survey, uid);
+    } else if (res.suspect) {
+      chip(`Подозрение: +${res.extra_m} м, проверявам пак`, "warn");
+      log(`Мин. ${i + 1}: пътят се различава (+${res.extra_m} м) - чакам да се върне на маршрута.`);
+    } else {
+      chip(res.shape_same ? `Маршрутът съвпада (${span})` : `Равностойна алтернатива (${span})`, "ok");
+      log(`Мин. ${i + 1}: съвпада в прозореца ${span}.`, "ok");
+    }
+  }
+
+  // Анимацията НЕ чака сървъра: Диди върви с темпото от PACE, а минутите отиват към сървъра
+  // във фонова опашка - една по една и в правилния ред (сървърът сравнява прозорец от минути).
+  // Резултатът се рисува, когато пристигне. Накрая изчакваме опашката да се изпразни.
+  let queue = Promise.resolve();
+  const timing = { n:0, ms:0, max:0 };
+  for (let i = 0; i < minutes.length && !S.abort; i++) {
+    const pts = minutes[i];
+    await animate(me, pts, stepMs);
+    if (S.abort) break;
+    trail.setLatLngs([...trail.getLatLngs(), ...pts.slice(1)]);
+    L.circleMarker(pts[pts.length - 1], { radius:4, color:"#fff", weight:1.5, fillColor:c.gosho, fillOpacity:1 }).addTo(L_trip);
+    $("minute").textContent = `Минута ${i + 1} от ${minutes.length}`;
+
+    // наблизо има активен проблем -> "още ли е там?" (тук нарочно спираме, Диди трябва да отговори)
+    const here = pts[pts.length - 1];
+    for (const r of S.reports) {
+      if (!asked.has(r.id) && dist(here, [r.lat, r.lng]) < 70) { asked.add(r.id); await askStillThere(r, auto ? (auto.confirm || "yes") : null); }
+    }
+    const body = { user_id:uid, trip_id:trip, idx:i, path:pts, final:i === minutes.length - 1 };
+    queue = queue.then(async () => {
+      if (S.abort) return;
+      const res = await post("/api/segment/", body);
+      if (res.route_ms != null) { timing.n++; timing.ms += res.route_ms; timing.max = Math.max(timing.max, res.route_ms); }
+      await handle(i, res);
+    });
+  }
+  if (!S.abort) {
+    let waiting = true;
+    sleep(400).then(() => { if (waiting) chip("Анализирам последните минути…", "warn"); });
+    await queue.catch(e => log("Грешка при анализа: " + e.message, "bad"));
+    waiting = false;
+  }
+  if (timing.n) {
+    const avg = Math.round(timing.ms / timing.n);
+    log(`Маршрутна услуга: средно ${avg} ms, най-бавно ${timing.max} ms на заявка.`, avg > 700 ? "bad" : "info");
+  }
+  me.setLatLng(path[path.length - 1]);
+  winLine.setLatLngs([]);
+  if (!S.abort) log(`${nameOf(S.userNo)} стигна до целта.`, "ok");
+  bus.postMessage({ type:"trip", trip_id:trip, report_id:out.deviation && out.deviation.report_id });
+  loadReports();
+  return out;
+}
+
+// Двойките A->B, които сървърът ще сравнява по време на пътуването (прозорец от WINDOW_MIN минути).
+// Подаваме ги предварително на /api/warm/, за да са в кеша и Диди да не спира на checkpoint-ите.
+function windowPairs(path) {
+  const m = toMinutes(path);
+  return m.map((pts, i) => [m[Math.max(0, i - WINDOW_MIN + 1)][0], pts[pts.length - 1]]);
+}
+const warm = (path) => post("/api/warm/", { pairs:windowPairs(path) }).catch(() => null);
+
+// Бързо пътуване без анимация (за "още двама души" в авто демото). Същите заявки като runTrip.
+async function quietTrip(uid, path) {
+  const trip = "trip-" + Math.random().toString(36).slice(2, 10), minutes = toMinutes(path);
+  let dev = null;
+  for (let i = 0; i < minutes.length && !S.abort; i++) {
+    const res = await post("/api/segment/", { user_id:uid, trip_id:trip, idx:i, path:minutes[i], final:i === minutes.length - 1 });
+    if (res.deviation) dev = res;
+  }
+  return { trip, deviation:dev };
+}
+// Няколко маркера минават по пътя едновременно, с малко отместване.
+async function ghosts(path, count, ms) {
+  const c = C(), dense = densify(path, 4);
+  const runs = Array.from({ length:count }, (_, k) => new Promise(async res => {
+    await sleep(k * 350);
+    const trail = L.polyline([dense[0]], { color:c.gosho, weight:4, opacity:.55 }).addTo(L_trip);
+    const m = L.marker(dense[0], { icon:divIcon('<div class="gosho-pin">♿</div>', 34), zIndexOffset:1000 }).addTo(L_trip);
+    const t0 = performance.now();
+    const step = (t) => {
+      const f = Math.min(1, (t - t0) / ms), n = Math.max(1, Math.round(f * (dense.length - 1)));
+      m.setLatLng(dense[n]); trail.setLatLngs(dense.slice(0, n + 1));
+      f < 1 && !S.abort ? requestAnimationFrame(step) : res();
+    };
+    REDUCED ? (m.setLatLng(dense[dense.length - 1]), res()) : requestAnimationFrame(step);
+  }));
+  await Promise.all(runs);
+}
+
+// ---------- бутони ----------
+$("tRoute").onclick = () => toggleMode("route");
+$("tReport").onclick = () => toggleMode("report");
+$("tObstacle").onclick = async () => {
+  if (S.mode === "obstacle") return setMode(null);
+  if (!S.base) { lock(true); try { await ensureRoute(); } catch (e) { log(e.message, "bad"); } lock(false); }
+  setMode("obstacle");
+};
+$("tUser").onclick = () => newGosho();
+function newGosho() {
+  S.userNo++; S.userId = newId(); S.consent = false;
+  $("who").textContent = `♿ ${nameOf(S.userNo)}`; if (S.userNo > 1) log(`Друг потребител: ${nameOf(S.userNo)}.`);
+}
+$("tGo").onclick = async () => {
+  setMode(null); lock(true);
+  try {
+    await ensureRoute();
+    if (await askConsent(false)) {
+      const path = S.detour && S.detour.method !== "none" ? S.detour.path : S.base;
+      await runTrip({ path, stepMs:900 });
+    }
+  } catch (e) { log("Грешка: " + e.message, "bad"); chip("Грешка, виж журнала", "bad"); }
+  lock(false);
+};
+function clearScene() {
+  Object.assign(S, { start:null, end:null, base:null, detour:null, obstacles:[] });
+  [L_plan, L_obst, L_trip].forEach(l => l.clearLayers()); setMode(null); chip("Готов за път"); $("minute").textContent = "";
+}
+$("tClear").onclick = () => { if (!S.busy) clearScene(); };
+$("logToggle").onclick = () => { const o = $("log").classList.toggle("open"); $("logToggle").setAttribute("aria-expanded", o); };
+$("doneClose").onclick = () => closeModal("doneModal");
+
+// ---------- 🎬 авто демо: целият сценарий с един клик, ~35 сек ----------
+// Времена в ms. Ако демото ви трябва по-кратко/по-дълго, сменяте само тук.
+const PACE = {
+  read: 3000,      // време за прочитане на текста на всяка сцена
+  first: 2000,     // пауза на първата сцена (маршрутът вече се вижда)
+  control: 500,   // една "минута" на нормалния ден
+  detour: 500,    // една "минута" при заобикалянето
+  ghosts: 2000,   // Иво и Мира минават заедно
+  tap: 7000,       // пауза преди всяко "докосване"
+  beat: 600,      // кратка пауза между сцените
+};
+$("tDemo").onclick = async () => {
+  if (S.demo) { S.abort = true; label("tDemo", "Спирам…"); return; }
+  S.demo = true; S.abort = false; lock(true);
+  $("tDemo").classList.add("running"); label("tDemo", "Спри");
+  const T = 5, t0 = performance.now(), guard = () => { if (S.abort) throw "stop"; };
+  const FIT = { paddingTopLeft:[40, 160], paddingBottomRight:[40, 30] };   // място за текста на сцената
+  try {
+    clearScene();
+    S.userNo = 0; newGosho();
+
+    // 1. Нормален ден: маршрутът съвпада
+    scene(1, T, "Диди е с инвалидна количка и отива от The Steps на хакатона в Градската градина. Маршрутът съвпада.");
+    S.start = DEMO_A; S.end = DEMO_B; await loadBase();
+    map.fitBounds(L.latLngBounds(S.base), FIT);
+    warm(S.base);                                                                       // кеш за нормалния ден, във фона
+    const obstacle = pointAt(S.base, 0.5);
+    const detourP = post("/api/detour/", { a:S.start, b:S.end, obstacles:[obstacle] });  // смята се, докато Диди върви
+    detourP.then(d => d.method !== "none" && warm(d.path)).catch(() => null);         // кеш за заобикалянето
+    await sleep(PACE.first); guard();
+    if (!(await askConsent(true))) throw "stop";
+    await runTrip({ path:S.base, stepMs:PACE.control, auto:{}, name:"Диди (обикновен ден)" }); guard();
+
+    // 2. Препятствие
+    scene(2, T, "На следващия ден на пътя има препятствие. Диди заобикаля.");
+    L_trip.clearLayers();
+    S.obstacles = [obstacle]; drawObstacles(true);
+    S.detour = await detourP; S.base = S.detour.base; drawPlan();
+    if (S.detour.method === "none") throw new Error("не успях да изчисля заобикаляне");
+    log(`Заобикаляне ${METHOD[S.detour.method]}: +${Math.round(lengthOf(S.detour.path) - lengthOf(S.base))} м.`);
+    await sleep(PACE.read); guard();
+    const r1 = await runTrip({ path:S.detour.path, stepMs:PACE.detour, auto:{ survey:{ type:"narrow", level:"high" } }, name:"Диди" });
+    guard();
+
+    // 3. Още двама -> проблемът става активен
+    scene(3, T, "Едно отклонение не е доказателство. Иво и Мира също заобикалят на същото място.");
+    L_trip.clearLayers(); await sleep(PACE.read / 2); guard();
+    const u2 = newId(), u3 = newId();
+    S.userNo = 3; $("who").textContent = "♿ Иво и Мира";
+    chip("Иво и Мира заобикалят…", "warn"); $("minute").textContent = "";
+    const work = (async () => {
+      const a = await quietTrip(u2, S.detour.path);
+      if (a.deviation && a.deviation.ask_survey) await post("/api/answer/", { report_id:a.deviation.report_id, user_id:u2, skipped:true });
+      const b = await quietTrip(u3, S.detour.path);
+      if (b.deviation && b.deviation.ask_survey) await post("/api/answer/", { report_id:b.deviation.report_id, user_id:u3, type:"narrow", level:"mid" });
+      return b.deviation || a.deviation;
+    })();
+    const [dev] = await Promise.all([work, ghosts(S.detour.path, 2, PACE.ghosts)]); guard();
+    await sleep(PACE.beat);
+    const reportId = (dev || r1.deviation || {}).report_id;
+    if (!reportId) throw new Error("отклонението не беше засечено - виж журнала");
+    log("Иво пропусна въпросника, Мира отговори: тясно, средно.", "ok");
+    chip(dev && dev.status === "active" ? `Активен проблем: ${dev.users} души` : "Още кандидат", dev && dev.status === "active" ? "bad" : "warn");
+    bus.postMessage({ type:"deviation", report_id:reportId });
+
+    // 4. Следващият Диди потвърждава
+    scene(4, T, "Проблемът вече се вижда от всички. Сашо минава оттам и потвърждава, че е още там.");
+    await loadReports();
+    newGosho(); S.consent = true;
+    map.flyTo(obstacle, 18, { duration: REDUCED ? 0 : .8 }); await sleep(PACE.read); guard();
+    const rep = S.reports.find(r => r.id === reportId);
+    if (rep) await askStillThere(rep, "yes");
+    guard();
+
+    // 5. Резултатът в панела на MAP
+    scene(5, T, "Резултатът е в панела на MAP: място, тежест, колко души, какво са казали.");
+    const d = await get(`/api/reports/${reportId}/`);
+    bus.postMessage({ type:"demo_done", report_id:reportId, trip_id:r1.trip });
+    map.fitBounds(L.latLngBounds(S.detour.path), FIT);
+    const by = d.answers.by_level;
+    $("doneResult").innerHTML = `
+      <dt>Проблем</dt><dd>${d.type_label}, ${d.level_label.toLowerCase()}</dd>
+      <dt>Статус</dt><dd>${d.status === "active" ? "Активен" : "Кандидат"}</dd>
+      <dt>Заобиколили</dt><dd>${d.deviation_users} души</dd>
+      <dt>Въпросник</dt><dd>${d.answers.total - (by.skipped || 0)} описания, ${by.skipped || 0} ${by.skipped === 1 ? "пропуснат" : "пропуснати"}</dd>
+      <dt>Потвърждения</dt><dd>${d.confirmations}</dd>
+      <dt>Приоритет</dt><dd>${d.priority}</dd>`;
+    $("doneOpen").href = `/map/?focus=${reportId}&trip=${r1.trip}`;
+    await sleep(PACE.beat);
+    openModal("doneModal");
+    const secs = Math.round((performance.now() - t0) / 1000);
+    chip(`Демото приключи за ${secs} сек`, "ok"); log(`Авто демо: ${secs} сек.`);
+  } catch (e) {
+    if (e === "stop") chip("Демото е спряно");
+    else { log("Демото спря: " + (e.message || e), "bad"); chip("Демото спря, виж журнала", "bad"); $("log").classList.add("open"); }
+    ["consentModal", "surveyModal", "confirmModal"].forEach(closeModal);
+  }
+  scene();
+  S.demo = false; S.abort = false; lock(false);
+  $("tDemo").classList.remove("running"); label("tDemo", "Авто демо");
+};
+
+log(`Маршрутна услуга: ${PROVIDER}. 📍 задай старт и цел, 🚧 сложи препятствие, ▶ тръгни.`);
+log("Или натисни 🎬 за целия сценарий.");
+</script>
+</body>
+</html>
